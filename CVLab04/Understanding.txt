@@ -1,0 +1,224 @@
+================================================================
+CV Lab 04 — Edge Detection & Blurring
+================================================================
+
+----------------------------------------------------------------
+CORE CONCEPT: What is an Image to a Computer?
+----------------------------------------------------------------
+An image is just a 2D grid of numbers (pixels). Grayscale images
+have one number per pixel (0=black, 255=white). Color images have
+3 numbers per pixel (Blue, Green, Red in OpenCV).
+
+Edge detection and blurring are both based on one idea:
+    CONVOLUTION — slide a small matrix (kernel) over the image
+    and replace each pixel with a weighted sum of its neighbours.
+
+
+================================================================
+TASK 01 — EDGE DETECTION
+================================================================
+
+WHAT IS AN EDGE?
+    A place in the image where pixel brightness changes sharply.
+    Example: boundary between a dark object and a bright background.
+
+WHY DETECT EDGES?
+    Edges carry the structural information of a scene — shapes,
+    objects, boundaries. Most computer vision tasks start here.
+
+----------------------------------------------------------------
+METHOD 1: Canny
+----------------------------------------------------------------
+Function : cv2.Canny(img, low_threshold, high_threshold)
+Type     : Multi-stage pipeline (not a single convolution)
+
+Steps inside Canny:
+  1. Gaussian blur       — removes noise before processing
+  2. Sobel gradients     — finds rate of brightness change
+  3. Non-max suppression — keeps only the sharpest peak (thin edges)
+  4. Hysteresis thresh   — keeps strong edges; keeps weak edges
+                           only if connected to a strong one
+
+Parameters:
+  low_threshold  — edges weaker than this are discarded
+  high_threshold — edges stronger than this are always kept
+
+Result  : Cleanest, thinnest edges. Best general-purpose choice.
+Weakness: Two thresholds must be tuned manually.
+
+----------------------------------------------------------------
+METHOD 2: Sobel
+----------------------------------------------------------------
+Function : cv2.Sobel(img, cv2.CV_64F, dx, dy, ksize)
+Type     : First-order derivative (gradient)
+
+How it works:
+  Uses two 3x3 kernels — one detects change in X direction
+  (vertical edges), one in Y direction (horizontal edges).
+  You then combine them: cv2.addWeighted(sobel_x, 0.5, sobel_y, 0.5, 0)
+
+Why CV_64F?
+  Gradients can be negative (brightness going DOWN).
+  uint8 cannot hold negatives, so we use 64-bit float,
+  then convert back with cv2.convertScaleAbs().
+
+Result  : Good gradient map; can isolate direction of edges.
+Weakness: Less accurate at angles; affected by noise.
+
+----------------------------------------------------------------
+METHOD 3: Scharr
+----------------------------------------------------------------
+Function : cv2.Scharr(img, cv2.CV_64F, dx, dy)
+Type     : First-order derivative (improved Sobel)
+
+How it works:
+  Identical to Sobel but uses a specially designed 3x3 kernel
+  with larger coefficients for better rotational symmetry.
+  A 45-degree edge is detected as accurately as a straight edge.
+
+Result  : More accurate than Sobel for the same kernel size.
+Weakness: Fixed kernel size only (3x3); no ksize parameter.
+
+----------------------------------------------------------------
+METHOD 4: Laplacian
+----------------------------------------------------------------
+Function : cv2.Laplacian(img, cv2.CV_64F, ksize)
+Type     : Second-order derivative
+
+How it works:
+  Instead of "how fast is brightness changing?" (1st derivative),
+  it asks "how fast is THAT rate changing?" (2nd derivative).
+  This means it responds to edges in ALL directions at once.
+
+Why blur first?
+  2nd derivatives amplify noise enormously. Always apply
+  GaussianBlur before Laplacian or results will be useless.
+
+Result  : Detects all edges at once; good for blob/spot detection.
+Weakness: Very sensitive to noise; needs pre-blurring.
+
+----------------------------------------------------------------
+QUICK COMPARISON TABLE
+----------------------------------------------------------------
+Method      | Derivative | Directions | Noise  | Output Quality
+------------|------------|------------|--------|---------------
+Canny       | Multi-step | All        | Low    | Best (thin, clean)
+Sobel       | 1st        | X or Y     | Medium | Good (directional)
+Scharr      | 1st        | X or Y     | Medium | Better than Sobel
+Laplacian   | 2nd        | All        | High   | Noisy without blur
+
+
+================================================================
+TASK 02 — IMAGE BLURRING
+================================================================
+
+WHAT IS BLURRING?
+    Replacing each pixel with a weighted average of its neighbours.
+    This smooths out sharp changes — the opposite of edge detection.
+
+WHY BLUR?
+  - Remove noise before processing
+  - Smooth an image for visual purposes
+  - Pre-processing step for edge detection (Laplacian, Canny)
+
+----------------------------------------------------------------
+METHOD 1: Gaussian Blur
+----------------------------------------------------------------
+Function : cv2.GaussianBlur(img, (kW, kH), sigmaX)
+Kernel   : Bell-curve (Gaussian) weights — centre pixel gets the
+           most weight, neighbours get less as distance increases.
+
+Parameters:
+  (kW, kH) — kernel size, must be odd (e.g. 3,5,7,9...)
+  sigmaX=0 — OpenCV calculates sigma automatically from ksize
+
+Result  : Natural-looking smooth blur. Most widely used.
+Use for : Noise removal, pre-processing before edge detection.
+
+----------------------------------------------------------------
+METHOD 2: Median Blur
+----------------------------------------------------------------
+Function : cv2.medianBlur(img, k)
+Kernel   : Replaces pixel with the MEDIAN value of neighbours,
+           not a weighted average.
+
+Parameters:
+  k — neighbourhood size (must be odd)
+
+Result  : Excellent at removing "salt and pepper" noise while
+          preserving edges better than Gaussian.
+Use for : Images with random white/black dot noise.
+
+----------------------------------------------------------------
+METHOD 3: Custom Filter with cv2.filter2D
+----------------------------------------------------------------
+Function : cv2.filter2D(img, -1, kernel)
+  -1 means output has same depth as input
+
+HOW TO BUILD A KERNEL:
+  kernel = np.ones((5,5), np.float32) / 25
+  This is a 5x5 averaging filter — every pixel becomes the
+  simple mean of its 5x5 neighbourhood (box blur).
+
+KERNEL SIZE EFFECT:
+  Larger kernel = more pixels averaged = more blur.
+  3x3  → subtle
+  7x7  → noticeable
+  15x15 → heavy blur
+
+KERNEL SHAPE EFFECT:
+  Shape of the kernel controls DIRECTION of the blur.
+
+  Horizontal line kernel (1 row of 1s, rest 0s):
+    kernel_h[4, :] = 1/9   → horizontal motion blur
+
+  Vertical line kernel (1 column of 1s, rest 0s):
+    kernel_v[:, 4] = 1/9   → vertical motion blur
+
+  Diagonal kernel (np.eye):
+    kernel_d = np.eye(9) / 9   → diagonal motion blur
+
+  This is how motion blur effects in games/movies are created.
+
+----------------------------------------------------------------
+QUICK COMPARISON TABLE
+----------------------------------------------------------------
+Method          | How it works          | Best for
+----------------|-----------------------|----------------------
+Gaussian Blur   | Weighted avg (bell)   | General noise removal
+Median Blur     | Median of neighbours  | Salt & pepper noise
+Custom Avg      | Equal avg (box)       | Simple uniform blur
+Custom Shaped   | Directional avg       | Motion blur effects
+
+
+================================================================
+KEY FUNCTIONS TO REMEMBER
+================================================================
+
+cv2.imread()              — load image from disk
+cv2.cvtColor()            — convert color spaces (BGR→RGB, BGR→GRAY)
+cv2.Canny()               — Canny edge detection
+cv2.Sobel()               — Sobel gradient (1st derivative)
+cv2.Scharr()              — Improved Sobel (1st derivative)
+cv2.Laplacian()           — Laplacian edges (2nd derivative)
+cv2.convertScaleAbs()     — convert float gradient back to uint8
+cv2.addWeighted()         — combine two images with weights
+cv2.GaussianBlur()        — Gaussian blur
+cv2.medianBlur()          — Median blur
+cv2.filter2D()            — apply any custom kernel via convolution
+np.ones() / np.eye()      — build simple averaging / diagonal kernels
+
+
+================================================================
+THE BIG PICTURE
+================================================================
+
+Edge Detection and Blurring are opposites:
+  - Blurring REMOVES high-frequency detail (smooths transitions)
+  - Edge Detection FINDS high-frequency detail (sharp transitions)
+
+In real pipelines they work together:
+  Blur first (remove noise) → then detect edges (clean result)
+  This is exactly what Canny does internally.
+
+================================================================
